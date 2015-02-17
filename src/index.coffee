@@ -2,16 +2,15 @@
 ((factory) ->
   if typeof exports is 'object'
     # node.js-type environment
-    moment = require 'moment'
-    module.exports = factory(moment)
+    module.exports = factory(require('moment'), require('q'))
   else if typeof define is 'function' and define.amd
     # amd (requirejs etc)
-    define ['moment'], factory
+    define ['moment', 'q'], factory
   else if window?
     # browser
-    window.Validator = factory(window.moment)
+    window.Validator = factory(window.moment, window.Q)
   
-)((moment) ->
+)((moment, Q) ->
   global = class Validator
     ##
     # Creates a new validator
@@ -90,23 +89,33 @@
         model.expandKeypath = ObjectModel.prototype.expandKeypath
 
       # validate the model
+      promises = []
+      
       for keypath, rules of @rules
-        @validateWildcardKeypath @basePath + keypath, result, rules
-
-      return {}=
+        p = @validateWildcardKeypath @basePath + keypath, result, rules
+        promises.push p if p.then
+      
+      r = 
         valid: result.valid
         errors: result.errors.model
         data: result.data.get(@basePath)
-    
+      
+      if promises.length
+        return Q.all(promises).then(-> r)
+      else
+        return r
+          
     
     ##
     # Validates a keypath possibly containing a wildcard
     #
     validateWildcardKeypath: (keypath, result, rules) ->
       paths = result.model.expandKeypath keypath
+      promises = []
       
       for path in paths
-        @validateKeypath result.model.get(path), path, result, rules
+        p = @validateKeypath result.model.get(path), path, result, rules
+        promises.push p if p.then
     
 
     ##
