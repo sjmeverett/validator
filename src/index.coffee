@@ -25,7 +25,8 @@
       # get the arguments
       switch arguments.length
         when 3
-          [@model, @basePath, @rules] = arguments
+          [@basePath, @model, @rules] = arguments
+          @basePath = @basePath + '.'
         when 2
           @rules = arguments[1]
 
@@ -97,42 +98,47 @@
       
       for keypath, rules of @rules
         p = @validateWildcardKeypath @basePath + keypath, result, rules
-        promises.push p if p.then
-      
-      r = 
+        promises.push p if p?.then
+
+      # return the results
+      if promises.length
+        return Q.all(promises).then =>
+          valid: result.valid
+          errors: result.errors.model
+          data: result.data.get(@basePath.substring(0, @basePath.length - 1))
+      else
         valid: result.valid
         errors: result.errors.model
-        data: result.data.get(@basePath)
-      
-      if promises.length
-        if Q?
-          return Q.all(promises).then(-> r)
-        else
-          throw new Error 'need Q library for promises support'
-      else
-        return r
-          
+        data: result.data.get(@basePath.substring(0, @basePath.length - 1))
+    
     
     ##
     # Validates a keypath possibly containing a wildcard
     #
     validateWildcardKeypath: (keypath, result, rules) ->
-      debugger
-      
       paths = result.model.expandKeypath keypath
       promises = []
       
       for path in paths
         p = @validateKeypath result.model.get(path), path, result, rules
         promises.push p if p?.then
+      
+      if promises.length
+        if not Q?
+          throw new Error 'need Q library for promises support'
+        return Q.all promises
     
-
+    
     ##
     # Validates a specific keypath
     #
     validateKeypath: (value, keypath, result, rules) ->
-      # work through each rule
-      for rule, ruleValue of rules
+      coerced = null
+      
+      # what to do with each rule
+      fn = (i, rules) =>
+        {rule, ruleValue} = rules[i]
+        
         # if it's not a known rule, but it does define a function, use that function
         if not @validators.hasOwnProperty(rule)
           if typeof ruleValue is 'function'
@@ -144,20 +150,42 @@
 
         # validate
         validation = validator.call(this, value, ruleValue, result)
-
-        if validation.valid
-          # clear the error message if necessary
-          result.model.set(keypath + @errorSuffix, undefined) if not result.immediate
+        
+        # what to do after each rule
+        coda = (validation) =>
+          if validation.valid
+            # clear the error message if necessary
+            result.model.set(keypath + @errorSuffix, undefined) if not result.immediate
+            
+            # save the coerced value if there is one
+            coerced = validation.coerced if validation.coerced?
+            
+            # continue, if necessary
+            if i < rules.length - 1
+              fn i + 1, rules
+          else
+            # not valid, set the error message and break
+            result.valid = false
+            result.errors.set keypath, validation.error
+            result.model.set(keypath + @errorSuffix, validation.error) if not result.immediate
+        
+        # call the coda somehow, depending whether or not we have a promise
+        if validation.then
+          validation.then coda
         else
-          # not valid, set the error message and break
-          result.valid = false
-          result.errors.set keypath, validation.error
-          result.model.set(keypath + @errorSuffix, validation.error) if not result.immediate
-          break
-
-      # if it was valid, set the corresponding result.data
-      if result.valid
-        result.data.set(keypath, if validation.coerced? then validation.coerced else value)
+          coda validation
+      
+      r = fn 0, ({rule, ruleValue} for rule, ruleValue of rules)
+      
+      coda = ->
+        # if it was valid, set the corresponding result.data
+        if result.valid
+          result.data.set(keypath, if coerced? then coerced else value)
+      
+      if r?.then
+        r.then coda
+      else
+        coda()
 
 
     ##

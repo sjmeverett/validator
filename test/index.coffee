@@ -2,6 +2,7 @@
 (require "mocha-as-generated")()
 Ractive = require 'ractive'
 expect = (require 'chai').expect
+Q = require 'q'
 
 Validator = require '../src'
 ObjectModel = Validator.ObjectModel
@@ -244,3 +245,30 @@ describe 'Validator', ->
       expect(validation.valid).to.be.false
       expect(model.get('items.a.strMsg')).to.exist
       expect(model.get('items.b.strMsg')).to.not.exist
+    
+    
+    it 'handles validators which return promises', ->
+      model = new ObjectModel
+        a: ''
+      
+      validator = new Validator model,
+        'a': {custom: (-> Q.fcall -> valid: false)}
+      
+      validation = validator.validate()
+      expect(validation.then).to.exist
+      
+      validation = yield validation
+      expect(validation.valid).to.be.false
+    
+    
+    it 'allows you to set the base path', ->
+      model = new ObjectModel
+        data:
+          str: 'hello'
+      
+      validator = new Validator 'data', model,
+        'str': {required: true}
+      
+      validation = validator.validate()
+      expect(validation.valid).to.be.true
+      expect(validation.data.str).to.equal 'hello'

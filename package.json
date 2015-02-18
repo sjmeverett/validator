@@ -6,9 +6,6 @@
     "co": "^3.1.0",
     "mocha": "^1.8.0",
     "mocha-as-generated": "^1.0.4",
-    "ractive": "^0.6.1"
-  },
-  "dependencies": {
-    "moment": "^2.9.0"
+    "q": "^1.1.2"
   }
 }
