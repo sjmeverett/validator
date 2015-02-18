@@ -2,9 +2,13 @@
 ((factory) ->
   if typeof exports is 'object'
     # node.js-type environment
-    module.exports = factory(require('moment'), require('q'))
+    module.exports = factory(
+      try require('moment'),
+      try require('q')
+    )
   else if typeof define is 'function' and define.amd
     # amd (requirejs etc)
+    # meh, can't figure out optional dependencies here, pull requests welcome
     define ['moment', 'q'], factory
   else if window?
     # browser
@@ -101,7 +105,10 @@
         data: result.data.get(@basePath)
       
       if promises.length
-        return Q.all(promises).then(-> r)
+        if Q?
+          return Q.all(promises).then(-> r)
+        else
+          throw new Error 'need Q library for promises support'
       else
         return r
           
@@ -110,12 +117,14 @@
     # Validates a keypath possibly containing a wildcard
     #
     validateWildcardKeypath: (keypath, result, rules) ->
+      debugger
+      
       paths = result.model.expandKeypath keypath
       promises = []
       
       for path in paths
         p = @validateKeypath result.model.get(path), path, result, rules
-        promises.push p if p.then
+        promises.push p if p?.then
     
 
     ##
@@ -217,6 +226,9 @@
       # coercing to a moment object or a different format
       #
       moment: (value, format) ->
+        if not moment?
+          throw new Error 'need moment.js library for moment validator'
+          
         # allow coerce format to be specified
         if typeof format != 'string'
           {format, coerce} = format
@@ -304,12 +316,15 @@
     # Gets the value(s) at a keypath
     #
     get: (keypath) ->
+      if not keypath
+        return @model
+      
       # expand wild cards etc to get a list of keypaths
       paths = @expandKeypath keypath
 
       # map the list of keypaths to the values therein
       results = paths.map (keypath) =>
-        {object, child} = getObj @model, keypath
+        {object, child} = @getObj @model, keypath
         return object[child]
 
       # return the list of values, or if it's just one, return it on its own
@@ -321,31 +336,31 @@
 
     ##
     # Sets the value at a keypath
+    #
     set: (keypath, value) ->
        # expand wild cards etc to get a list of keypaths
       paths = @expandKeypath keypath
 
       # set the value at each keypath to the given value
       for keypath in paths
-        {object, child} = getObj @model, keypath
+        {object, child} = @getObj @model, keypath
         object[child] = value
 
 
     ##
     # Expands paths with wildcards to a list of paths
     # 
-    expandKeypath: (keypath, parent, paths) ->
+    expandKeypath: (keypath, paths) ->
       paths = paths or []
 
       # match wildcards
-      [match, path, remainder] = keypath.match(/^([^\*]*)\.\*(\..*)?$/) or []
+      [match, start, path, remainder] = keypath.match(/^(([^\*]+)\.)?\*(\..*)?$/) or []
 
       if match
         # wildcard present, keep recursing
-        @expandKeypath(k + remainder, (parent or '') + path, paths) for k in @get(path)
+        @expandKeypath(start + k + remainder, paths) for k of @get(path)
       else
         # no wildcard, add to the list of paths
-        keypath = parent + '.' + keypath if parent
         paths.push(keypath)
 
       return paths
@@ -371,7 +386,7 @@
         if not obj.hasOwnProperty parent
           obj[parent] = if isNaN(parseInt(child)) then {} else []
 
-        return getObj obj[parent], remainder
+        return @getObj obj[parent], remainder
   
   return global
 )

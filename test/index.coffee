@@ -4,13 +4,12 @@ Ractive = require 'ractive'
 expect = (require 'chai').expect
 
 Validator = require '../src'
-
+ObjectModel = Validator.ObjectModel
+val = Validator.validators
 
 describe 'Validator', ->
   
   describe 'built-in', ->
-    val = Validator.validators
-    
     describe 'required validator', ->
       it 'should be invalid for undefined', ->
         expect(val.required(undefined, true).valid).to.be.false
@@ -146,3 +145,102 @@ describe 'Validator', ->
       
       it 'should be invalid for negative numbers', ->
         expect(val.positive(-1).valid).to.be.false
+  
+  
+  
+  describe '.validate', ->
+    it 'should be valid for a valid model', ->
+      model = new ObjectModel
+        num: '1'
+        str: 'fish'
+      
+      validator = new Validator model,
+        num: {required: true, type: 'integer'}
+        str: {required: true}
+      
+      validation = validator.validate()
+      expect(validation.valid).to.be.true
+      expect(validation.data.num).to.equal 1
+      expect(validation.data.str).to.equal 'fish'
+    
+    
+    it 'should be invalid for an invalid model', ->
+      model = new ObjectModel
+        num: 'fish'
+        str: ''
+        
+      validator = new Validator model,
+        num: {required: true, type: 'integer'}
+        str: {required: true}
+      
+      numMsg = val.type('fish', 'integer', immediate: false).error
+      strMsg = val.required('', true).error
+      
+      validation = validator.validate()
+      expect(validation.valid).to.be.false
+      expect(model.get('numMsg')).to.equal numMsg
+      expect(model.get('strMsg')).to.equal strMsg
+      expect(validation.errors.num).to.equal numMsg
+      expect(validation.errors.str).to.equal strMsg
+    
+    
+    it 'should set the error message to the first encountered error', ->
+      validator = new Validator new ObjectModel(a: ''),
+        a: {custom: (-> valid: false, error: 'custom'), required: true}
+      
+      validation = validator.validate()
+      expect(validation.valid).to.be.false
+      expect(validation.errors.a).to.equal 'custom'
+    
+    
+    it 'handles array wildcard keypaths', ->
+      model = new ObjectModel
+        items: [
+          str: ''
+        ,
+          str: 'a'
+        ]
+      
+      validator = new Validator model,
+        'items.*.str': {required: true}
+      
+      validation = validator.validate()
+      expect(validation.valid).to.be.false
+      expect(model.get('items.0.strMsg')).to.exist
+      expect(model.get('items.1.strMsg')).to.not.exist
+    
+    
+    it 'handles multiple wildcards', ->
+      model = new ObjectModel
+        items: [
+          a: [
+            str: ''
+          ,
+            str: 'a'
+          ]
+        ]
+      
+      validator = new Validator model,
+        'items.*.a.*.str': {required: true}
+      
+      validation = validator.validate()
+      expect(validation.valid).to.be.false
+      expect(model.get('items.0.a.0.strMsg')).to.exist
+      expect(model.get('items.0.a.1.strMsg')).to.not.exist
+    
+    
+    it 'handles object wildcards', ->
+      model = new ObjectModel
+        items:
+          a:
+            str: ''
+          b:
+            str: 'a'
+      
+      validator = new Validator model,
+        'items.*.str': {required: true}
+      
+      validation = validator.validate()
+      expect(validation.valid).to.be.false
+      expect(model.get('items.a.strMsg')).to.exist
+      expect(model.get('items.b.strMsg')).to.not.exist
